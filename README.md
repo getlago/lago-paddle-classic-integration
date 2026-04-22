@@ -73,7 +73,7 @@ Lago invoice.generated (type: subscription)
 ```bash
 git clone https://github.com/getlago/lago-paddle-classic-integration.git
 cd lago-paddle-classic-integration
-cp .env.example .env   # edit with your Redis URL if needed
+cp .env.example .env
 docker compose up -d
 ```
 
