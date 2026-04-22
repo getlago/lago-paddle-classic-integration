@@ -110,7 +110,7 @@ Clicking **Connect** will:
 - Create the `ai_tokens` billable metric and `ai_tokens_plan` in Lago
 - Save all config to Redis + a durable file (survives Redis restarts)
 
-> **Paddle webhook — manual step:** the setup does not register the webhook in Paddle Classic. Go to Paddle Dashboard → Developer Tools → Alerts / Webhooks and point it to `{your-middleware-url}/webhooks/paddle`.
+> **Paddle webhook — manual step:** the setup does not register the webhook in Paddle Classic. Go to Paddle Dashboard → Developer Tools → Events → URLs for receiving webhooks → Add endpoint, and point it to `{your-middleware-url}/webhooks/paddle`.
 
 ---
 
