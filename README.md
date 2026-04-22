@@ -141,14 +141,6 @@ The API returns `200 OK` to Lago immediately and offloads all work to the Celery
 - **Paddle charge deduplication**: Before charging Paddle, the worker checks Redis for a stored `order_id` for that invoice. If found, the charge is skipped and the invoice is marked paid directly. This ensures Paddle is never charged twice even if the task retries.
 - **Lago API idempotency**: Lago subscriptions use a stable `external_id` (`paddle-sub-{subscription_id}`). Wallets handle `422 already_exists` gracefully.
 
-### Config persistence
-
-Config is stored in two layers:
-1. **Redis hash** — fast path, shared between API and worker
-2. **`/data/config.json`** on a named Docker volume — survives Redis restarts
-
-On API startup, if the Redis hash is missing it is rehydrated from the file automatically.
-
 ---
 
 ## Monitoring
