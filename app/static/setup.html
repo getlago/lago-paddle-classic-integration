@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Lago × Paddle Setup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f7;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 2px 20px rgba(0,0,0,0.08);
+      width: 100%;
+      max-width: 520px;
+      padding: 2.5rem;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 2rem;
+    }
+
+    .logo-text {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #1a1a1a;
+    }
+
+    .logo-sep { color: #999; }
+
+    h2 {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6b7280;
+      margin-bottom: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    h2:first-of-type { margin-top: 0; }
+
+    .field { margin-bottom: 1rem; }
+
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 0.375rem;
+    }
+
+    input {
+      width: 100%;
+      padding: 0.625rem 0.875rem;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      color: #111827;
+      background: #fafafa;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: #6366f1;
+      box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+      background: white;
+    }
+
+    .hint {
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-top: 0.25rem;
+    }
+
+    .row { display: flex; gap: 1rem; }
+    .row .field { flex: 1; }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #e5e7eb;
+      margin: 1.75rem 0;
+    }
+
+    button[type="submit"] {
+      width: 100%;
+      padding: 0.75rem;
+      background: #6366f1;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+      margin-top: 1.5rem;
+    }
+
+    button[type="submit"]:hover { background: #4f46e5; }
+    button[type="submit"]:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* Status states */
+    .status { display: none; margin-top: 1.5rem; border-radius: 8px; padding: 1.25rem; }
+    .status.loading {
+      align-items: center;
+      gap: 0.75rem;
+      background: #f0f9ff;
+      color: #0369a1;
+      font-size: 0.875rem;
+    }
+    .status.success { background: #f0fdf4; }
+    .status.error   { background: #fef2f2; }
+
+    .status.success h3 { color: #15803d; font-size: 1rem; margin-bottom: 0.75rem; }
+    .status.error   h3 { color: #b91c1c; font-size: 1rem; margin-bottom: 0.5rem; }
+    .status.error   p  { color: #dc2626; font-size: 0.875rem; }
+
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid #bae6fd;
+      border-top-color: #0369a1;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .step-list {
+      list-style: none;
+      margin-top: 0.5rem;
+    }
+    .step-list li {
+      font-size: 0.8125rem;
+      color: #0369a1;
+      padding: 0.2rem 0;
+    }
+    .step-list li::before { content: "→ "; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">
+      <img src="https://getlago.com/logo.svg" alt="Lago"
+           style="height:26px;width:auto;flex-shrink:0;" />
+      <span class="logo-sep">×</span>
+      <img src="https://classic.paddle.com/_astro/pc-logo-light.CzgGlNZs.svg" alt="Paddle Classic"
+           style="height:20px;width:auto;flex-shrink:0;" />
+      <span style="color:#9ca3af; font-size:0.875rem; margin-left:auto;">Setup</span>
+    </div>
+
+    <form id="setupForm">
+
+      <h2>Lago</h2>
+
+      <div class="field">
+        <label for="lago_api_url">API URL</label>
+        <input type="text" id="lago_api_url" name="lago_api_url"
+          value="https://api.getlago.com/api/v1"
+          placeholder="https://api.getlago.com/api/v1" />
+        <p class="hint">
+          Cloud: <code>https://api.getlago.com/api/v1</code> &nbsp;·&nbsp;
+          Local Docker: <code>http://lago_api_dev:3000/api/v1</code>
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="lago_api_key">API Key</label>
+        <input type="password" id="lago_api_key" name="lago_api_key"
+          placeholder="your-lago-api-key" required />
+      </div>
+
+      <div class="field" id="hostField" style="display:none">
+        <label for="lago_api_host">Host Header</label>
+        <input type="text" id="lago_api_host" name="lago_api_host"
+          placeholder="api.lago.dev" />
+        <p class="hint">Rails requires this to match its allowlist. Auto-detected from your API URL.</p>
+      </div>
+
+      <div class="field">
+        <label for="lago_webhook_secret">Webhook Secret (hmacKey)</label>
+        <input type="password" id="lago_webhook_secret" name="lago_webhook_secret"
+          placeholder="your-hmac-secret" required />
+        <p class="hint">Lago UI → Settings → Developers → Webhooks → <strong>HMAC signature</strong></p>
+      </div>
+
+      <hr class="divider" />
+
+      <h2>Paddle Classic</h2>
+
+      <div class="field">
+        <label for="paddle_classic_url">API URL</label>
+        <input type="text" id="paddle_classic_url" name="paddle_classic_url"
+          value="https://sandbox-vendors.paddle.com/api/2.0"
+          placeholder="https://sandbox-vendors.paddle.com/api/2.0" />
+        <p class="hint">Use <code>vendors.paddle.com</code> for production.</p>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="paddle_vendor_id">Vendor ID</label>
+          <input type="text" id="paddle_vendor_id" name="paddle_vendor_id"
+            placeholder="123456" required />
+        </div>
+        <div class="field">
+          <label for="paddle_vendor_auth_code">Auth Code</label>
+          <input type="password" id="paddle_vendor_auth_code" name="paddle_vendor_auth_code"
+            placeholder="••••••••••••••••" required />
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="paddle_monthly_plan_id">Subscription Plan ID</label>
+        <input type="text" id="paddle_monthly_plan_id" name="paddle_monthly_plan_id"
+          placeholder="123456" required />
+        <p class="hint">
+          Create a <strong>$0/mo monthly</strong> plan in Paddle dashboard (Catalog → Subscription Plans)
+          and paste its ID here. Customers subscribe to this on checkout; wallet top-ups and overage
+          charges are one-off charges against this same subscription.
+        </p>
+      </div>
+
+      <hr class="divider" />
+
+      <h2>Middleware</h2>
+
+      <div class="field">
+        <label for="middleware_url">Webhook URL</label>
+        <input type="url" id="middleware_url" name="middleware_url"
+          placeholder="https://your-middleware.com" required />
+        <p class="hint" id="middlewareHint"></p>
+      </div>
+
+
+      <button type="submit" id="submitBtn">Connect →</button>
+
+    </form>
+
+    <!-- Loading -->
+    <div class="status loading" id="statusLoading">
+      <div class="spinner"></div>
+      <div>
+        <div id="loadingText">Setting up your integration…</div>
+        <ul class="step-list" id="stepList"></ul>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div class="status error" id="statusError">
+      <h3>Setup failed</h3>
+      <p id="errorMessage"></p>
+    </div>
+
+  </div>
+
+  <script>
+    const form = document.getElementById('setupForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const statusLoading = document.getElementById('statusLoading');
+    const statusError = document.getElementById('statusError');
+
+    const steps = [
+      'Validating Lago credentials…',
+      'Registering webhook endpoint in Lago…',
+      'Validating Paddle credentials…',
+      'Creating Lago billable metric + plan…',
+      'Saving configuration…',
+    ];
+
+    function showStep(index) {
+      const list = document.getElementById('stepList');
+      const li = document.createElement('li');
+      li.textContent = steps[index] || 'Finalising…';
+      list.appendChild(li);
+    }
+
+    // Auto-detect local Docker URL and show/populate host header field
+    function updateHostField() {
+      const url = document.getElementById('lago_api_url').value;
+      const hostField = document.getElementById('hostField');
+      const hostInput = document.getElementById('lago_api_host');
+      // A URL with an explicit port means direct container access — Rails needs a Host header
+      try {
+        const parsed = new URL(url);
+        if (parsed.port) {
+          hostField.style.display = 'block';
+          if (!hostInput.value) hostInput.value = 'api.lago.dev';
+        } else {
+          hostField.style.display = 'none';
+          hostInput.value = '';
+        }
+      } catch (_) {}
+    }
+    document.getElementById('lago_api_url').addEventListener('input', updateHostField);
+    document.getElementById('lago_api_url').addEventListener('input', updateMiddlewareHint);
+    updateHostField(); // run on load in case value is pre-filled
+    updateMiddlewareHint();
+
+    function updateMiddlewareHint() {
+      const url = document.getElementById('lago_api_url').value;
+      const hint = document.getElementById('middlewareHint');
+      try {
+        const parsed = new URL(url);
+        if (parsed.port) {
+          // Local Docker — container name is fine
+          hint.innerHTML = 'How Lago reaches this middleware to deliver webhooks.<br>'
+            + 'Local Docker: use the container name, e.g. <code>http://lago-paddle-integration-api-1:3000</code>';
+        } else {
+          // Lago Cloud — must be a public URL
+          hint.innerHTML = '<strong style="color:#b45309">⚠️ Lago Cloud requires a publicly accessible URL here.</strong><br>'
+            + 'Use an ngrok tunnel: run <code>ngrok http 3000</code> and paste the <code>https://…ngrok-free.app</code> URL.<br>'
+            + 'Lago Cloud cannot reach <code>localhost</code> or Docker container names.';
+        }
+      } catch (_) {
+        hint.textContent = 'URL where Lago will POST webhook events to this middleware.';
+      }
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      // Reset
+      [statusLoading, statusError].forEach(el => el.style.display = 'none');
+      document.getElementById('stepList').innerHTML = '';
+      submitBtn.disabled = true;
+      statusLoading.style.display = 'flex';
+
+      const data = {
+        lago_api_url:          document.getElementById('lago_api_url').value,
+        lago_api_key:          document.getElementById('lago_api_key').value,
+        lago_api_host:         document.getElementById('lago_api_host').value || '',
+        lago_webhook_secret:   document.getElementById('lago_webhook_secret').value,
+        paddle_classic_url:    document.getElementById('paddle_classic_url').value,
+        paddle_vendor_id:        document.getElementById('paddle_vendor_id').value,
+        paddle_vendor_auth_code: document.getElementById('paddle_vendor_auth_code').value,
+        paddle_monthly_plan_id:  document.getElementById('paddle_monthly_plan_id').value,
+        middleware_url:        document.getElementById('middleware_url').value,
+      };
+
+      // Animate steps while waiting
+      let stepIdx = 0;
+      const stepInterval = setInterval(() => {
+        if (stepIdx < steps.length) showStep(stepIdx++);
+      }, 1200);
+
+      try {
+        const resp = await fetch('/api/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+
+        clearInterval(stepInterval);
+        statusLoading.style.display = 'none';
+
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+          throw new Error(err.detail || 'Setup failed');
+        }
+
+        // Setup succeeded — go to status dashboard
+        window.location.href = '/status';
+
+      } catch (err) {
+        clearInterval(stepInterval);
+        statusLoading.style.display = 'none';
+        document.getElementById('errorMessage').textContent = err.message;
+        statusError.style.display = 'block';
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

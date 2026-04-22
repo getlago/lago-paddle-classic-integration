@@ -1,0 +1,55 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 3000 --reload
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - ./app:/app/app
+      - middleware_config:/data
+    depends_on:
+      - redis
+    networks:
+      - default
+      - lago_dev_default
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: celery -A app.worker worker --loglevel=info --concurrency=10
+    env_file: .env
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+    volumes:
+      - ./app:/app/app
+      - middleware_config:/data
+    depends_on:
+      - redis
+    networks:
+      - default
+      - lago_dev_default
+    restart: unless-stopped
+
+  flower:
+    build: .
+    command: celery -A app.worker flower --port=5555
+    ports:
+      - "5555:5555"
+    env_file: .env
+    depends_on:
+      - redis
+
+volumes:
+  middleware_config:  # durable store for config.json — survives container and Redis restarts
+
+networks:
+  default:
+    driver: bridge
+  lago_dev_default:
+    external: true
