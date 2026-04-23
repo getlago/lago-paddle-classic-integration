@@ -5,6 +5,7 @@ from app.utils.logger import get_logger
 from app.clients.lago import LagoClient
 from app.utils.config_store import get
 from app.config import settings
+from app.webhooks.verify.paddle import verify_paddle_signature
 
 router = APIRouter()
 logger = get_logger("webhook.paddle")
@@ -17,14 +18,16 @@ async def paddle_webhook(request: Request):
     Paddle Classic sends form-encoded POST bodies (not JSON).
     """
     form = await request.form()
-    alert_name = form.get("alert_name")
+    form_data = dict(form)
+    verify_paddle_signature(form_data)
+    alert_name = form_data.get("alert_name")
     logger.info("paddle webhook received", alert_name=alert_name)
 
     if alert_name == "subscription_created":
-        await _handle_subscription_created(dict(form))
+        await _handle_subscription_created(form_data)
 
     elif alert_name == "subscription_cancelled":
-        await _handle_subscription_cancelled(dict(form))
+        await _handle_subscription_cancelled(form_data)
 
     else:
         logger.info("unhandled paddle webhook, ignoring", alert_name=alert_name)

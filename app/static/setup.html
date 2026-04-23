@@ -244,6 +244,13 @@
         <p class="hint" id="middlewareHint"></p>
       </div>
 
+      <div class="field">
+        <label for="paddle_public_key">Paddle Public Key <span style="font-weight:400;color:#9ca3af">(optional)</span></label>
+        <textarea id="paddle_public_key" name="paddle_public_key" rows="4"
+          placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
+          style="width:100%;padding:0.625rem 0.875rem;border:1px solid #d1d5db;border-radius:8px;font-size:0.75rem;font-family:monospace;background:#fafafa;resize:vertical;outline:none;"></textarea>
+        <p class="hint">Paddle Dashboard → Developer Tools → Public Key. Used to verify webhook signatures. Strongly recommended.</p>
+      </div>
 
       <button type="submit" id="submitBtn">Connect →</button>
 
@@ -348,6 +355,7 @@
         paddle_vendor_auth_code: document.getElementById('paddle_vendor_auth_code').value,
         paddle_monthly_plan_id:  document.getElementById('paddle_monthly_plan_id').value,
         middleware_url:        document.getElementById('middleware_url').value,
+        paddle_public_key:     document.getElementById('paddle_public_key').value,
       };
 
       // Animate steps while waiting

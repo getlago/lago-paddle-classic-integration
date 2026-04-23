@@ -24,7 +24,8 @@ class SetupRequest(BaseModel):
     paddle_monthly_plan_id: str
 
     # App
-    middleware_url: str   # URL Lago uses to deliver webhooks — must be publicly reachable (ngrok for local dev)
+    middleware_url: str        # URL Lago uses to deliver webhooks — must be publicly reachable (ngrok for local dev)
+    paddle_public_key: str = ""  # RSA public key for Paddle webhook signature verification (optional but recommended)
 
 
 class SetupResponse(BaseModel):
@@ -165,6 +166,7 @@ async def setup(req: SetupRequest):
         "PADDLE_VENDOR_AUTH_CODE": req.paddle_vendor_auth_code,
         "PADDLE_MONTHLY_PLAN_ID": req.paddle_monthly_plan_id,
         "MIDDLEWARE_URL": middleware_url,
+        "PADDLE_PUBLIC_KEY": req.paddle_public_key,
     })
     logger.info("setup complete — config saved to Redis")
 
