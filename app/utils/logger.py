@@ -3,7 +3,7 @@ import structlog
 
 # Loggers whose entries are written to stdout but suppressed from the UI log panel.
 # Add any internal/plumbing logger name here to keep the status page clean.
-_UI_HIDDEN_LOGGERS = {"config_store", "webhook.verify.lago"}
+_UI_HIDDEN_LOGGERS = {"config_store"}
 
 _redis_client = None
 

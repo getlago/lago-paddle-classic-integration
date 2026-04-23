@@ -3,9 +3,6 @@ import hashlib
 import base64
 from fastapi import Request, HTTPException
 from app.utils.config_store import get
-from app.utils.logger import get_logger
-
-logger = get_logger("webhook.verify.lago")
 
 
 async def verify_lago_signature(request: Request) -> bytes:
@@ -30,14 +27,6 @@ async def verify_lago_signature(request: Request) -> bytes:
     ).decode()
 
     match = hmac.compare_digest(expected, signature)
-    logger.info(
-        "webhook signature check",
-        algo=algo,
-        received=signature[:20] + "...",
-        expected=expected[:20] + "...",
-        match=match,
-        secret_prefix=secret[:8] + "...",
-    )
 
     if not match:
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
