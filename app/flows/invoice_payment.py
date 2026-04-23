@@ -98,7 +98,7 @@ async def run(invoice: dict) -> None:
 
 
 def _charge_name(invoice_type: str, amount_cents: int, currency: str) -> str:
-    amount = amount_cents / 100
+    amount = lago_cents_to_paddle_amount(amount_cents, currency)
     if invoice_type == "credit":
         return f"Wallet Top-Up — {amount:,.0f} {currency}"[:50]
     return f"AI Token Overage — {amount:,.2f} {currency}"[:50]
