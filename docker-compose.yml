@@ -15,9 +15,6 @@ services:
       - middleware_config:/data
     depends_on:
       - redis
-    networks:
-      - default
-      - lago_dev_default
     restart: unless-stopped
 
   worker:
@@ -31,9 +28,6 @@ services:
       - middleware_config:/data
     depends_on:
       - redis
-    networks:
-      - default
-      - lago_dev_default
     restart: unless-stopped
 
   flower:
@@ -47,9 +41,3 @@ services:
 
 volumes:
   middleware_config:  # durable store for config.json — survives container and Redis restarts
-
-networks:
-  default:
-    driver: bridge
-  lago_dev_default:
-    external: true

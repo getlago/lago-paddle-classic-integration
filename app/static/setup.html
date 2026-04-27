@@ -197,6 +197,13 @@
         <p class="hint">Lago UI → Settings → Developers → Webhooks → <strong>HMAC signature</strong></p>
       </div>
 
+      <div class="field">
+        <label for="lago_plan_code">Plan Code <span style="font-weight:400;color:#9ca3af">(optional)</span></label>
+        <input type="text" id="lago_plan_code" name="lago_plan_code"
+          placeholder="ai_tokens_plan" />
+        <p class="hint">Leave blank to auto-create an <code>ai_tokens_plan</code> with a sum-aggregation billable metric. Set this if you already have a plan in Lago you want to use.</p>
+      </div>
+
       <hr class="divider" />
 
       <h2>Paddle Classic</h2>
@@ -350,6 +357,7 @@
         lago_api_key:          document.getElementById('lago_api_key').value,
         lago_api_host:         document.getElementById('lago_api_host').value || '',
         lago_webhook_secret:   document.getElementById('lago_webhook_secret').value,
+        lago_plan_code:        document.getElementById('lago_plan_code').value || '',
         paddle_classic_url:    document.getElementById('paddle_classic_url').value,
         paddle_vendor_id:        document.getElementById('paddle_vendor_id').value,
         paddle_vendor_auth_code: document.getElementById('paddle_vendor_auth_code').value,

@@ -98,17 +98,25 @@ Open `http://localhost:3000` in your browser and fill in the setup form:
 | **Lago API URL** | `https://api.getlago.com/api/v1` (Cloud) or your self-hosted URL |
 | **Lago API Key** | Lago → Settings → API keys |
 | **Webhook Secret** | Lago → Settings → Developers → Webhooks → HMAC signature |
+| **Plan Code** *(optional)* | An existing Lago plan code — leave blank to auto-create one |
 | **Paddle API URL** | `https://vendors.paddle.com/api/2.0` (production) or sandbox |
 | **Paddle Vendor ID** | Your Paddle vendor ID |
 | **Paddle Auth Code** | Your Paddle vendor auth code |
 | **Subscription Plan ID** | A `$0/mo` monthly plan created in Paddle → Catalog → Subscription Plans |
 | **Webhook URL** | Your ngrok URL (e.g. `https://xxxx.ngrok-free.app`) |
+| **Paddle Public Key** *(optional)* | Paddle Dashboard → Developer Tools → Public Key — used to verify webhook signatures |
 
 Clicking **Connect** will:
 - Validate both Lago and Paddle credentials
 - Register the webhook endpoint in Lago (and clean up any stale ones)
-- Create the `ai_tokens` billable metric and `ai_tokens_plan` in Lago
+- Create the `ai_tokens` billable metric and `ai_tokens_plan` in Lago — **skipped if you provide your own plan code**
 - Save all config to Redis + a durable file (survives Redis restarts)
+
+#### Bringing your own Lago plan
+
+If you already have a Lago plan configured, paste its code into the **Plan Code** field. The middleware will use it as-is — no billable metric or plan will be created. Your plan must include a charge that tracks token usage (any `sum_agg` metric works).
+
+> **Note on pricing:** Lago tracks usage and computes invoice amounts based on the charge prices defined in your plan. Paddle charges are driven by those amounts — no pricing is set in the middleware itself.
 
 > **Paddle webhook — manual step:** the setup does not register the webhook in Paddle Classic. Go to Paddle Dashboard → Developer Tools → Events → URLs for receiving webhooks → Add endpoint, and point it to `{your-middleware-url}/webhooks/paddle`.
 

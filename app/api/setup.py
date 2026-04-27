@@ -26,6 +26,7 @@ class SetupRequest(BaseModel):
     # App
     middleware_url: str        # URL Lago uses to deliver webhooks — must be publicly reachable (ngrok for local dev)
     paddle_public_key: str = ""  # RSA public key for Paddle webhook signature verification (optional but recommended)
+    lago_plan_code: str = ""   # existing Lago plan code — if set, skips auto-creation of metric + plan
 
 
 class SetupResponse(BaseModel):
@@ -109,50 +110,52 @@ async def setup(req: SetupRequest):
             raise ValueError("Invalid Paddle Classic credentials")
     logger.info("paddle credentials validated")
 
-    # ── Step 4: Create Lago billable metric + plan ──
-    lago_metric_code = "ai_tokens"
-    lago_plan_code = "ai_tokens_plan"
+    # ── Step 4: Create Lago billable metric + plan (skipped if client provides their own plan code) ──
+    lago_plan_code = req.lago_plan_code.strip() or "ai_tokens_plan"
 
-    async with httpx.AsyncClient(base_url=lago_base, headers=lago_headers, timeout=15.0) as client:
-        # Create metric (idempotent)
-        metric_resp = await client.post(
-            "/billable_metrics",
-            json={"billable_metric": {
-                "name": "AI Tokens", "code": lago_metric_code,
-                "aggregation_type": "sum_agg", "field_name": "tokens",
-            }},
-        )
-        if metric_resp.status_code not in (200, 201, 422):
-            metric_resp.raise_for_status()
+    if not req.lago_plan_code.strip():
+        lago_metric_code = "ai_tokens"
+        async with httpx.AsyncClient(base_url=lago_base, headers=lago_headers, timeout=15.0) as client:
+            # Create metric (idempotent)
+            metric_resp = await client.post(
+                "/billable_metrics",
+                json={"billable_metric": {
+                    "name": "AI Tokens", "code": lago_metric_code,
+                    "aggregation_type": "sum_agg", "field_name": "tokens",
+                }},
+            )
+            if metric_resp.status_code not in (200, 201, 422):
+                metric_resp.raise_for_status()
 
-        # Resolve the metric's lago_id — needed for plan charge creation
-        if metric_resp.status_code == 422:
-            # Already exists — fetch it
-            existing = await client.get(f"/billable_metrics/{lago_metric_code}")
-            existing.raise_for_status()
-            metric_lago_id = existing.json()["billable_metric"]["lago_id"]
-        else:
-            metric_lago_id = metric_resp.json()["billable_metric"]["lago_id"]
-        logger.info("lago billable metric ready", code=lago_metric_code, lago_id=metric_lago_id)
+            # Resolve the metric's lago_id — needed for plan charge creation
+            if metric_resp.status_code == 422:
+                existing = await client.get(f"/billable_metrics/{lago_metric_code}")
+                existing.raise_for_status()
+                metric_lago_id = existing.json()["billable_metric"]["lago_id"]
+            else:
+                metric_lago_id = metric_resp.json()["billable_metric"]["lago_id"]
+            logger.info("lago billable metric ready", code=lago_metric_code, lago_id=metric_lago_id)
 
-        # Create plan (idempotent)
-        plan_resp = await client.post(
-            "/plans",
-            json={"plan": {
-                "name": "AI Tokens Plan", "code": lago_plan_code,
-                "interval": "monthly", "amount_cents": 0, "amount_currency": "USD",
-                "pay_in_advance": False,
-                "charges": [{
-                    "billable_metric_id": metric_lago_id,
-                    "charge_model": "standard",
+            # Create plan (idempotent)
+            plan_resp = await client.post(
+                "/plans",
+                json={"plan": {
+                    "name": "AI Tokens Plan", "code": lago_plan_code,
+                    "interval": "monthly", "amount_cents": 0, "amount_currency": "USD",
                     "pay_in_advance": False,
-                    "properties": {"amount": "0"},
-                }],
-            }},
-        )
-        if plan_resp.status_code not in (200, 201, 422):
-            plan_resp.raise_for_status()
-        logger.info("lago plan ready", code=lago_plan_code)
+                    "charges": [{
+                        "billable_metric_id": metric_lago_id,
+                        "charge_model": "standard",
+                        "pay_in_advance": False,
+                        "properties": {"amount": "0"},
+                    }],
+                }},
+            )
+            if plan_resp.status_code not in (200, 201, 422):
+                plan_resp.raise_for_status()
+            logger.info("lago plan ready", code=lago_plan_code)
+    else:
+        logger.info("using existing lago plan", code=lago_plan_code)
 
     # ── Step 5: Persist to Redis ──
     config_store.save({
