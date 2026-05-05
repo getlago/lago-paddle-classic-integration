@@ -2,7 +2,7 @@ import json
 import redis as redis_lib
 from fastapi import APIRouter
 from app.config import settings
-from app.utils.config_store import is_configured, get
+from app.utils.config_store import is_configured
 from app.utils.logger import get_logger
 
 router = APIRouter()

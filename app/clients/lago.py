@@ -54,15 +54,35 @@ class LagoClient:
         metadata: list[dict],
     ) -> None:
         """
-        Upsert Lago customer with arbitrary metadata key-value pairs.
-        Used to store Paddle IDs (checkout URL, subscription_id, etc.)
+        Upsert Lago customer metadata key-value pairs.
+        Lago requires the existing entry's id when updating a key — without it the API
+        returns value_already_exist. We fetch current metadata first and merge ids in.
         """
-        payload = {
-            "customer": {
-                "external_id": external_id,
-                "metadata": metadata,
-            }
-        }
+        # Fetch ALL existing metadata — Lago replaces the entire array on each write,
+        # so we must include entries we're not updating or they get deleted.
+        existing: list[dict] = []
+        customer = await self.get_customer(external_id)
+        if customer:
+            existing = customer.get("metadata", [])
+
+        existing_by_key = {m["key"]: m for m in existing}
+        new_keys = {entry["key"] for entry in metadata}
+
+        # Keep existing entries that we're NOT touching
+        merged = [
+            {"id": m["lago_id"], "key": m["key"], "value": m["value"],
+             "display_in_invoice": m.get("display_in_invoice", False)}
+            for m in existing if m["key"] not in new_keys
+        ]
+
+        # Add/update the incoming entries
+        for entry in metadata:
+            item = dict(entry)
+            if entry["key"] in existing_by_key:
+                item["id"] = existing_by_key[entry["key"]]["lago_id"]
+            merged.append(item)
+
+        payload = {"customer": {"external_id": external_id, "metadata": merged}}
         resp = await self._client.post("/customers", json=payload)
         if resp.is_error:
             logger.error("lago api error", status=resp.status_code, body=resp.text, payload=payload)
@@ -131,22 +151,26 @@ class LagoClient:
         external_customer_id: str,
         currency: str = "USD",
         rate_amount: str = "1",
+        billable_metric_code: str = "ai_tokens",
     ) -> dict | None:
         """
-        Create a prepaid wallet for a customer.
+        Create a prepaid wallet for a customer, scoped to a specific billable metric.
         Idempotent — returns None if the customer already has a wallet.
         rate_amount: how many currency units one credit is worth (default 1 credit = $1).
+        billable_metric_code: the wallet only applies to charges for this metric.
         """
-        payload = {
-            "wallet": {
-                "name": "AI Tokens Wallet",
-                "rate_amount": rate_amount,
-                "currency": currency,
-                "external_customer_id": external_customer_id,
-                "paid_credits": "0",
-                "granted_credits": "0",
-            }
+        wallet_payload: dict = {
+            "name": "AI Tokens Wallet",
+            "rate_amount": rate_amount,
+            "currency": currency,
+            "external_customer_id": external_customer_id,
+            "paid_credits": "0",
+            "granted_credits": "0",
         }
+        if billable_metric_code:
+            wallet_payload["applies_to"] = {"billable_metric_codes": [billable_metric_code]}
+
+        payload = {"wallet": wallet_payload}
         resp = await self._client.post("/wallets", json=payload)
 
         if resp.status_code == 422:
@@ -171,6 +195,34 @@ class LagoClient:
             currency=currency,
         )
         return wallet
+
+    async def get_wallet(self, external_customer_id: str) -> dict | None:
+        """Return the first active wallet for a customer, or None."""
+        resp = await self._client.get(
+            "/wallets",
+            params={"external_customer_id": external_customer_id, "status": "active"},
+        )
+        if resp.is_error:
+            return None
+        wallets = resp.json().get("wallets", [])
+        return wallets[0] if wallets else None
+
+    async def top_up_wallet(self, wallet_id: str, credits: str) -> dict:
+        """Add paid credits to a wallet."""
+        resp = await self._client.post(
+            "/wallet_transactions",
+            json={"wallet_transaction": {
+                "wallet_id": wallet_id,
+                "paid_credits": credits,
+                "granted_credits": "0",
+            }},
+        )
+        if resp.is_error:
+            logger.error("lago wallet top-up failed", status=resp.status_code, body=resp.text)
+        resp.raise_for_status()
+        tx = resp.json().get("wallet_transaction", {})
+        logger.info("lago wallet topped up", wallet_id=wallet_id, credits=credits)
+        return tx
 
     async def close(self):
         await self._client.aclose()

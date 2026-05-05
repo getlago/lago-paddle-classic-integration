@@ -90,6 +90,38 @@
     .row { display: flex; gap: 1rem; }
     .row .field { flex: 1; }
 
+    .plan-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto auto;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .plan-row input { margin: 0; }
+    .plan-row .remove-btn {
+      background: none;
+      border: none;
+      color: #9ca3af;
+      font-size: 1.25rem;
+      cursor: pointer;
+      padding: 0.5rem 0.25rem;
+      line-height: 1;
+    }
+    .plan-row .remove-btn:hover { color: #ef4444; }
+    .plan-col-headers {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto auto;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+    }
+    .plan-col-headers span {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #9ca3af;
+    }
+
     .divider {
       border: none;
       border-top: 1px solid #e5e7eb;
@@ -197,13 +229,6 @@
         <p class="hint">Lago UI → Settings → Developers → Webhooks → <strong>HMAC signature</strong></p>
       </div>
 
-      <div class="field">
-        <label for="lago_plan_code">Plan Code <span style="font-weight:400;color:#9ca3af">(optional)</span></label>
-        <input type="text" id="lago_plan_code" name="lago_plan_code"
-          placeholder="ai_tokens_plan" />
-        <p class="hint">Leave blank to auto-create an <code>ai_tokens_plan</code> with a sum-aggregation billable metric. Set this if you already have a plan in Lago you want to use.</p>
-      </div>
-
       <hr class="divider" />
 
       <h2>Paddle Classic</h2>
@@ -229,16 +254,20 @@
         </div>
       </div>
 
-      <div class="field">
-        <label for="paddle_monthly_plan_id">Subscription Plan ID</label>
-        <input type="text" id="paddle_monthly_plan_id" name="paddle_monthly_plan_id"
-          placeholder="123456" required />
-        <p class="hint">
-          Create a <strong>$0/mo monthly</strong> plan in Paddle dashboard (Catalog → Subscription Plans)
-          and paste its ID here. Customers subscribe to this on checkout; wallet top-ups and overage
-          charges are one-off charges against this same subscription.
-        </p>
-      </div>
+      <hr class="divider" />
+
+      <h2>Plans</h2>
+      <p class="hint" style="margin-bottom:1rem;">
+        Map each Paddle subscription plan to a Lago plan. Add one row per tier.
+        Leave <em>Lago Plan Code</em> blank on a single-plan setup to auto-create one.
+      </p>
+
+      <div id="planRows"></div>
+
+      <button type="button" id="addPlanBtn"
+        style="margin-top:0.5rem;background:none;border:1px dashed #d1d5db;border-radius:8px;width:100%;padding:0.5rem;font-size:0.8125rem;color:#6b7280;cursor:pointer;">
+        + Add plan
+      </button>
 
       <hr class="divider" />
 
@@ -290,7 +319,7 @@
       'Validating Lago credentials…',
       'Registering webhook endpoint in Lago…',
       'Validating Paddle credentials…',
-      'Creating Lago billable metric + plan…',
+      'Setting up Lago plans…',
       'Saving configuration…',
     ];
 
@@ -301,12 +330,62 @@
       list.appendChild(li);
     }
 
-    // Auto-detect local Docker URL and show/populate host header field
+    // ── Plan rows ──────────────────────────────────────────────────────────
+    function createPlanRow(data = {}) {
+      const row = document.createElement('div');
+      row.className = 'plan-row';
+      const walletChecked = data.create_wallet !== false ? 'checked' : '';
+      row.innerHTML = `
+        <input type="text" placeholder="Paddle Plan ID" class="pr-paddle-id" value="${data.paddle_plan_id || ''}" />
+        <input type="text" placeholder="Lago Plan Code" class="pr-lago-code" value="${data.lago_plan_code || ''}" />
+        <input type="checkbox" class="pr-wallet" title="Create prepaid wallet for this plan" ${walletChecked} style="justify-self:center;width:1rem;height:1rem;cursor:pointer;" />
+        <button type="button" class="remove-btn" title="Remove">×</button>
+      `;
+      row.querySelector('.remove-btn').addEventListener('click', () => {
+        row.remove();
+        updateColHeaders();
+      });
+      return row;
+    }
+
+    function updateColHeaders() {
+      const existing = document.getElementById('planColHeaders');
+      const rows = document.querySelectorAll('.plan-row');
+      if (rows.length === 0) {
+        if (existing) existing.remove();
+        return;
+      }
+      if (!existing) {
+        const headers = document.createElement('div');
+        headers.id = 'planColHeaders';
+        headers.className = 'plan-col-headers';
+        headers.innerHTML = '<span>Paddle Plan ID</span><span>Lago Plan Code</span><span style="text-align:center">Wallet</span><span></span>';
+        document.getElementById('planRows').prepend(headers);
+      }
+    }
+
+    document.getElementById('addPlanBtn').addEventListener('click', () => {
+      document.getElementById('planRows').appendChild(createPlanRow());
+      updateColHeaders();
+    });
+
+    // Start with one empty row
+    document.getElementById('planRows').appendChild(createPlanRow());
+    updateColHeaders();
+
+    function getPlanMap() {
+      return Array.from(document.querySelectorAll('.plan-row')).map(row => ({
+        paddle_plan_id: row.querySelector('.pr-paddle-id').value.trim(),
+        lago_plan_code: row.querySelector('.pr-lago-code').value.trim(),
+        create_wallet:  row.querySelector('.pr-wallet').checked,
+      })).filter(p => p.paddle_plan_id);  // drop empty rows
+    }
+
+    // ── Host header auto-detection ─────────────────────────────────────────
     function updateHostField() {
       const url = document.getElementById('lago_api_url').value;
       const hostField = document.getElementById('hostField');
       const hostInput = document.getElementById('lago_api_host');
-      // A URL with an explicit port means direct container access — Rails needs a Host header
       try {
         const parsed = new URL(url);
         if (parsed.port) {
@@ -318,10 +397,6 @@
         }
       } catch (_) {}
     }
-    document.getElementById('lago_api_url').addEventListener('input', updateHostField);
-    document.getElementById('lago_api_url').addEventListener('input', updateMiddlewareHint);
-    updateHostField(); // run on load in case value is pre-filled
-    updateMiddlewareHint();
 
     function updateMiddlewareHint() {
       const url = document.getElementById('lago_api_url').value;
@@ -329,11 +404,9 @@
       try {
         const parsed = new URL(url);
         if (parsed.port) {
-          // Local Docker — container name is fine
           hint.innerHTML = 'How Lago reaches this middleware to deliver webhooks.<br>'
             + 'Local Docker: use the container name, e.g. <code>http://lago-paddle-integration-api-1:3000</code>';
         } else {
-          // Lago Cloud — must be a public URL
           hint.innerHTML = '<strong style="color:#b45309">⚠️ Lago Cloud requires a publicly accessible URL here.</strong><br>'
             + 'Use an ngrok tunnel: run <code>ngrok http 3000</code> and paste the <code>https://…ngrok-free.app</code> URL.<br>'
             + 'Lago Cloud cannot reach <code>localhost</code> or Docker container names.';
@@ -343,30 +416,39 @@
       }
     }
 
+    document.getElementById('lago_api_url').addEventListener('input', updateHostField);
+    document.getElementById('lago_api_url').addEventListener('input', updateMiddlewareHint);
+    updateHostField();
+    updateMiddlewareHint();
+
+    // ── Submit ─────────────────────────────────────────────────────────────
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
 
-      // Reset
+      const plan_map = getPlanMap();
+      if (plan_map.length === 0) {
+        alert('Add at least one plan before connecting.');
+        return;
+      }
+
       [statusLoading, statusError].forEach(el => el.style.display = 'none');
       document.getElementById('stepList').innerHTML = '';
       submitBtn.disabled = true;
       statusLoading.style.display = 'flex';
 
       const data = {
-        lago_api_url:          document.getElementById('lago_api_url').value,
-        lago_api_key:          document.getElementById('lago_api_key').value,
-        lago_api_host:         document.getElementById('lago_api_host').value || '',
-        lago_webhook_secret:   document.getElementById('lago_webhook_secret').value,
-        lago_plan_code:        document.getElementById('lago_plan_code').value || '',
-        paddle_classic_url:    document.getElementById('paddle_classic_url').value,
+        lago_api_url:            document.getElementById('lago_api_url').value,
+        lago_api_key:            document.getElementById('lago_api_key').value,
+        lago_api_host:           document.getElementById('lago_api_host').value || '',
+        lago_webhook_secret:     document.getElementById('lago_webhook_secret').value,
+        paddle_classic_url:      document.getElementById('paddle_classic_url').value,
         paddle_vendor_id:        document.getElementById('paddle_vendor_id').value,
         paddle_vendor_auth_code: document.getElementById('paddle_vendor_auth_code').value,
-        paddle_monthly_plan_id:  document.getElementById('paddle_monthly_plan_id').value,
-        middleware_url:        document.getElementById('middleware_url').value,
-        paddle_public_key:     document.getElementById('paddle_public_key').value,
+        plan_map,
+        middleware_url:          document.getElementById('middleware_url').value,
+        paddle_public_key:       document.getElementById('paddle_public_key').value,
       };
 
-      // Animate steps while waiting
       let stepIdx = 0;
       const stepInterval = setInterval(() => {
         if (stepIdx < steps.length) showStep(stepIdx++);
@@ -387,7 +469,6 @@
           throw new Error(err.detail || 'Setup failed');
         }
 
-        // Setup succeeded — go to status dashboard
         window.location.href = '/status';
 
       } catch (err) {
