@@ -1,7 +1,8 @@
 """
 Handles invoice.generated webhooks from Lago.
 
-- type: credit      → wallet was funded externally (Paddle already charged); mark invoice paid directly.
+- type: credit      → if pre-funded externally (Redis flag set), mark paid directly.
+                     otherwise Lago-initiated top-up: charge Paddle, then mark paid.
 - type: subscription → overage invoice; charge the Paddle subscription on file, then mark invoice paid.
 
 Paddle is the Merchant of Record and handles tax automatically. The amount we send
@@ -61,16 +62,25 @@ async def run(invoice: dict) -> None:
 
     if not subscription_id:
         if invoice_type == "credit":
-            # Credit invoice with no plan = wallet was already funded externally (Paddle charge
-            # already happened). Just mark it paid in Lago — no Paddle charge needed.
-            lago = LagoClient()
-            try:
-                await lago.mark_invoice_succeeded(invoice_id)
-                logger.info("credit invoice marked paid (external top-up)", invoice_id=invoice_id)
-            finally:
-                await lago.close()
-            return
-        raise ValueError(f"No paddle_sub found for customer {external_id!r} (plan: {plan_code!r}, paddle_plan_id: {paddle_plan_id!r})")
+            r = _redis()
+            if r.get(f"external_topup:{external_id}"):
+                # Wallet was pre-funded by an external Paddle charge — mark paid, no charge needed.
+                r.delete(f"external_topup:{external_id}")
+                lago = LagoClient()
+                try:
+                    await lago.mark_invoice_succeeded(invoice_id)
+                    logger.info("credit invoice marked paid (external top-up)", invoice_id=invoice_id)
+                finally:
+                    await lago.close()
+                return
+
+            # Lago-initiated top-up: find the wallet-enabled plan's Paddle subscription
+            wallet_plan = next((p for p in plan_map if p.get("create_wallet", True)), None)
+            wallet_plan_id = wallet_plan["paddle_plan_id"] if wallet_plan else None
+            subscription_id = metadata.get(f"paddle_sub_{wallet_plan_id}") if wallet_plan_id else None
+
+        if not subscription_id:
+            raise ValueError(f"No paddle_sub found for customer {external_id!r} (plan: {plan_code!r}, paddle_plan_id: {paddle_plan_id!r})")
 
     lago   = LagoClient()
     paddle = PaddleClassicClient()

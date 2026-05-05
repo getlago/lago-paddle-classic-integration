@@ -38,9 +38,11 @@ Paddle subscription_created (empty passthrough)
   → create Lago subscription + wallet (if plan has create_wallet: true)
 ```
 
-**Flow 3 — External wallet top-up** (`subscription_payment_succeeded`)
+**Flow 3 — Wallet top-up**
 
-When a Paddle subscription charge fires from outside the middleware (e.g. a customer purchases credits), the middleware catches the payment webhook and tops up the customer's Lago wallet. The resulting credit invoice is marked paid automatically — no second Paddle charge is made.
+Two directions depending on who initiates the charge:
+
+*3a — External Paddle charge* (`subscription_payment_succeeded`): a charge is triggered directly against a Paddle subscription (e.g. from your app or a customer portal). The middleware catches the payment webhook, tops up the Lago wallet, and marks the resulting credit invoice as paid — no second Paddle charge is made.
 
 ```
 External Paddle charge (POST /subscription/{id}/charge)
@@ -48,13 +50,25 @@ External Paddle charge (POST /subscription/{id}/charge)
   → read lago_external_id from passthrough (fallback: user_id)
   → top up Lago wallet with sale_gross amount
   → Lago invoice.generated (type: credit)
-  → mark credit invoice as paid in Lago
+  → mark credit invoice as paid → credits become available
 ```
 
-Skipped for:
+*3b — Lago-initiated top-up* (`invoice.generated` type: credit): a wallet transaction is created directly in Lago (e.g. from the Lago UI or API). The middleware charges the customer's Paddle subscription for the invoice amount, then marks it paid.
+
+```
+Lago invoice.generated (type: credit)
+  → no external_topup flag in Redis → Lago-initiated
+  → look up paddle_sub_{plan_id} from customer metadata
+  → charge Paddle subscription
+  → mark Lago invoice as paid → credits become available
+```
+
+The middleware distinguishes the two using a short-lived Redis flag (`external_topup:{customer_id}`) set when an external charge is processed.
+
+Flow 3a is skipped for:
 - `$0` renewals (`sale_gross = 0`)
 - Customers with no active Lago wallet
-- Charges initiated by the middleware itself
+- Charges triggered by the middleware for overage invoices (Flow 4)
 
 **Flow 4 — Overage billing** (`invoice.generated` type: subscription)
 
@@ -130,7 +144,7 @@ At least one plan is required. Each row maps a Paddle plan to a Lago plan:
 | **Lago Plan Code** | An existing Lago plan code — leave blank on single-plan setups to auto-create one |
 | **Wallet** | Check to enable a prepaid credit wallet for this plan (uncheck for entitlement/flat-rate plans) |
 
-Multiple plans are supported. Each plan gets its own subscription metadata key (`paddle_sub_{paddle_plan_id}`) so customers can hold subscriptions to multiple plans simultaneously.
+Multiple plans are supported. Each plan gets its own subscription metadata key on the Lago customer — e.g. `paddle_sub_89290` for Paddle plan ID `89290`. This allows customers to hold subscriptions to multiple plans simultaneously, and ensures overage invoices are charged to the correct Paddle subscription.
 
 **App**
 
@@ -181,6 +195,7 @@ The API returns `200 OK` to webhooks immediately and offloads all work to the Ce
 - **Paddle charge deduplication**: Before charging Paddle, the worker checks Redis for an existing `order_id` for that invoice. If found, the charge is skipped and the invoice is marked paid directly.
 - **Wallet top-up deduplication**: Each `subscription_payment_id` is recorded in Redis after processing. Duplicate `subscription_payment_succeeded` webhooks are ignored.
 - **Middleware charge tagging**: Paddle charges triggered by the middleware are tagged with `middleware_order:{order_id}` in Redis so the `subscription_payment_succeeded` handler skips them and doesn't double-credit the wallet.
+- **External top-up flag**: when an external charge tops up a wallet, a short-lived `external_topup:{customer_id}` flag is set in Redis. The credit invoice handler reads this flag to decide whether to mark the invoice paid directly (external) or charge Paddle first (Lago-initiated).
 - **Lago API idempotency**: Lago subscriptions use a stable `external_id` (`paddle-sub-{subscription_id}`). Wallets handle `422 already_exists` gracefully.
 
 ---
