@@ -1,12 +1,21 @@
 import httpx
+import json
+from typing import List
 from urllib.parse import urlparse
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.utils.logger import get_logger
 from app.utils import config_store
 
 router = APIRouter()
 logger = get_logger("api.setup")
+
+
+class PlanEntry(BaseModel):
+    paddle_plan_id: str
+    lago_plan_code: str = ""          # leave blank on single-plan setups to auto-create
+    create_wallet: bool = True        # False for entitlement plans that don't need prepaid credits
+    billable_metric_code: str = ""    # metric the wallet is scoped to (e.g. "ai_tokens"); only used when create_wallet=True
 
 
 class SetupRequest(BaseModel):
@@ -20,27 +29,39 @@ class SetupRequest(BaseModel):
     paddle_classic_url: str = "https://sandbox-vendors.paddle.com/api/2.0"
     paddle_vendor_id: str
     paddle_vendor_auth_code: str
-    # Plan ID created manually in the Paddle dashboard ($0/mo monthly)
-    paddle_monthly_plan_id: str
+
+    # Plans — at least one required
+    # Each plan maps a Paddle plan ID to a Lago plan code (shown as a card at /checkout)
+    plan_map: List[PlanEntry]
 
     # App
-    middleware_url: str        # URL Lago uses to deliver webhooks — must be publicly reachable (ngrok for local dev)
-    paddle_public_key: str = ""  # RSA public key for Paddle webhook signature verification (optional but recommended)
-    lago_plan_code: str = ""   # existing Lago plan code — if set, skips auto-creation of metric + plan
+    middleware_url: str        # URL Lago uses to deliver webhooks — must be publicly reachable
+    paddle_public_key: str = ""  # RSA public key for Paddle webhook signature verification (optional)
 
 
 class SetupResponse(BaseModel):
     success: bool
     webhook_url: str
     webhook_already_registered: bool
-    lago_plan_code: str
-    paddle_monthly_plan_id: str
+    plan_count: int
     message: str
 
 
 @router.post("/api/setup", response_model=SetupResponse)
 async def setup(req: SetupRequest):
     logger.info("setup started")
+
+    if not req.plan_map:
+        raise HTTPException(status_code=422, detail="At least one plan is required")
+
+    # Multiple plans require all lago_plan_codes to be explicitly set
+    if len(req.plan_map) > 1:
+        missing = [p.paddle_plan_id for p in req.plan_map if not p.lago_plan_code.strip()]
+        if missing:
+            raise HTTPException(
+                status_code=422,
+                detail=f"lago_plan_code is required for all plans when configuring multiple plans. Missing for: {', '.join(missing)}",
+            )
 
     # When the URL has an explicit port it's a direct container address.
     # Rails' HostAuthorization blocks it unless Host: api.lago.dev is set.
@@ -110,74 +131,88 @@ async def setup(req: SetupRequest):
             raise ValueError("Invalid Paddle Classic credentials")
     logger.info("paddle credentials validated")
 
-    # ── Step 4: Create Lago billable metric + plan (skipped if client provides their own plan code) ──
-    lago_plan_code = req.lago_plan_code.strip() or "ai_tokens_plan"
+    # ── Step 4: Resolve Lago plan codes — auto-create only for single-plan setup ──
+    resolved_plans = []
+    for plan in req.plan_map:
+        lago_plan_code = plan.lago_plan_code.strip()
 
-    if not req.lago_plan_code.strip():
-        lago_metric_code = "ai_tokens"
-        async with httpx.AsyncClient(base_url=lago_base, headers=lago_headers, timeout=15.0) as client:
-            # Create metric (idempotent)
-            metric_resp = await client.post(
-                "/billable_metrics",
-                json={"billable_metric": {
-                    "name": "AI Tokens", "code": lago_metric_code,
-                    "aggregation_type": "sum_agg", "field_name": "tokens",
-                }},
-            )
-            if metric_resp.status_code not in (200, 201, 422):
-                metric_resp.raise_for_status()
+        if not lago_plan_code:
+            # Single-plan setup with no plan code → auto-create ai_tokens metric + plan
+            lago_plan_code = "ai_tokens_plan"
+            lago_metric_code = "ai_tokens"
 
-            # Resolve the metric's lago_id — needed for plan charge creation
-            if metric_resp.status_code == 422:
-                existing = await client.get(f"/billable_metrics/{lago_metric_code}")
-                existing.raise_for_status()
-                metric_lago_id = existing.json()["billable_metric"]["lago_id"]
-            else:
-                metric_lago_id = metric_resp.json()["billable_metric"]["lago_id"]
-            logger.info("lago billable metric ready", code=lago_metric_code, lago_id=metric_lago_id)
+            async with httpx.AsyncClient(base_url=lago_base, headers=lago_headers, timeout=15.0) as client:
+                metric_resp = await client.post(
+                    "/billable_metrics",
+                    json={"billable_metric": {
+                        "name": "AI Tokens", "code": lago_metric_code,
+                        "aggregation_type": "sum_agg", "field_name": "tokens",
+                    }},
+                )
+                if metric_resp.status_code not in (200, 201, 422):
+                    metric_resp.raise_for_status()
 
-            # Create plan (idempotent)
-            plan_resp = await client.post(
-                "/plans",
-                json={"plan": {
-                    "name": "AI Tokens Plan", "code": lago_plan_code,
-                    "interval": "monthly", "amount_cents": 0, "amount_currency": "USD",
-                    "pay_in_advance": False,
-                    "charges": [{
-                        "billable_metric_id": metric_lago_id,
-                        "charge_model": "standard",
+                if metric_resp.status_code == 422:
+                    existing = await client.get(f"/billable_metrics/{lago_metric_code}")
+                    existing.raise_for_status()
+                    metric_lago_id = existing.json()["billable_metric"]["lago_id"]
+                else:
+                    metric_lago_id = metric_resp.json()["billable_metric"]["lago_id"]
+                logger.info("lago billable metric ready", code=lago_metric_code, lago_id=metric_lago_id)
+
+                plan_resp = await client.post(
+                    "/plans",
+                    json={"plan": {
+                        "name": "AI Tokens Plan", "code": lago_plan_code,
+                        "interval": "monthly", "amount_cents": 0, "amount_currency": "USD",
                         "pay_in_advance": False,
-                        "properties": {"amount": "0"},
-                    }],
-                }},
-            )
-            if plan_resp.status_code not in (200, 201, 422):
-                plan_resp.raise_for_status()
-            logger.info("lago plan ready", code=lago_plan_code)
-    else:
-        logger.info("using existing lago plan", code=lago_plan_code)
+                        "charges": [{
+                            "billable_metric_id": metric_lago_id,
+                            "charge_model": "standard",
+                            "pay_in_advance": False,
+                            "properties": {"amount": "0"},
+                        }],
+                    }},
+                )
+                if plan_resp.status_code not in (200, 201, 422):
+                    plan_resp.raise_for_status()
+                logger.info("lago plan auto-created", code=lago_plan_code)
+        else:
+            logger.info("using existing lago plan", code=lago_plan_code, paddle_plan_id=plan.paddle_plan_id)
+
+        # For auto-created plans the metric is always "ai_tokens"; otherwise use what the client provided
+        resolved_metric_code = plan.billable_metric_code.strip() or ("ai_tokens" if not plan.lago_plan_code.strip() else "")
+
+        resolved_plans.append({
+            "paddle_plan_id": plan.paddle_plan_id,
+            "lago_plan_code": lago_plan_code,
+            "create_wallet": plan.create_wallet,
+            "billable_metric_code": resolved_metric_code,
+        })
 
     # ── Step 5: Persist to Redis ──
+    first = resolved_plans[0]
     config_store.save({
         "LAGO_API_URL": lago_base,
         "LAGO_API_HOST": lago_api_host,
         "LAGO_API_KEY": req.lago_api_key,
         "LAGO_WEBHOOK_SECRET": req.lago_webhook_secret,
-        "LAGO_PLAN_CODE": lago_plan_code,
+        # First plan kept as fallback for code that reads the single-plan key
+        "LAGO_PLAN_CODE": first["lago_plan_code"],
+        # Full plan map for multi-plan checkout picker + subscription routing
+        "LAGO_PLAN_MAP": json.dumps(resolved_plans),
         "PADDLE_CLASSIC_URL": req.paddle_classic_url,
         "PADDLE_VENDOR_ID": req.paddle_vendor_id,
         "PADDLE_VENDOR_AUTH_CODE": req.paddle_vendor_auth_code,
-        "PADDLE_MONTHLY_PLAN_ID": req.paddle_monthly_plan_id,
         "MIDDLEWARE_URL": middleware_url,
         "PADDLE_PUBLIC_KEY": req.paddle_public_key,
     })
-    logger.info("setup complete — config saved to Redis")
+    logger.info("setup complete — config saved to Redis", plan_count=len(resolved_plans))
 
     return SetupResponse(
         success=True,
         webhook_url=webhook_url,
         webhook_already_registered=webhook_already_registered,
-        lago_plan_code=lago_plan_code,
-        paddle_monthly_plan_id=req.paddle_monthly_plan_id,
+        plan_count=len(resolved_plans),
         message="Setup complete. Config is live immediately — no restart needed.",
     )

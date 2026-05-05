@@ -52,22 +52,25 @@ class PaddleClassicClient:
     async def generate_pay_link(
         self,
         product_id: str,
-        customer_email: str,
         passthrough: str,
+        customer_email: str = "",
     ) -> str:
         """
         Generate a Paddle checkout URL for a given plan.
         passthrough is a JSON string (max 1000 chars) passed back in webhooks.
+        customer_email pre-fills the checkout form but is optional.
         Returns the checkout URL.
         """
+        data = {
+            **self._auth(),
+            "product_id": product_id,
+            "passthrough": passthrough,
+        }
+        if customer_email:
+            data["customer_email"] = customer_email
         resp = await self._client.post(
             f"{self._base_url}/product/generate_pay_link",
-            data={
-                **self._auth(),
-                "product_id": product_id,
-                "customer_email": customer_email,
-                "passthrough": passthrough,
-            },
+            data=data,
         )
         resp.raise_for_status()
         data = resp.json()

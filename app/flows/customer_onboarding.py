@@ -1,16 +1,14 @@
-import json
 import redis as redis_lib
 from urllib.parse import quote
 from app.models.lago import LagoCustomer
 from app.clients.lago import LagoClient
-from app.clients.paddle_classic import PaddleClassicClient
 from app.utils.config_store import get
 from app.config import settings
 from app.utils.logger import get_logger
 
 logger = get_logger("flow.customer_onboarding")
 
-# Checkout URLs live in Redis for 30 days (long enough to complete checkout)
+# Cached data lives for 30 days — enough time to complete checkout
 _CHECKOUT_TTL = 60 * 60 * 24 * 30
 
 
@@ -18,8 +16,8 @@ def _redis():
     return redis_lib.from_url(settings.redis_url, decode_responses=True)
 
 
-def checkout_redis_key(external_id: str) -> str:
-    return f"checkout_url:{external_id}"
+def checkout_email_key(external_id: str) -> str:
+    return f"checkout_email:{external_id}"
 
 
 async def run(customer: LagoCustomer) -> None:
@@ -27,10 +25,10 @@ async def run(customer: LagoCustomer) -> None:
     Onboarding flow triggered by customer.created webhook from Lago.
 
     Steps:
-    1. Generate a Paddle checkout link for the monthly plan
-    2. Store the full URL in Redis (Lago metadata has a 255-char value limit)
-    3. Store a short redirect URL (/checkout/{external_id}) in Lago metadata
-    4. Paddle fires subscription_created webhook once customer completes checkout
+    1. Cache the customer email in Redis (used to pre-fill Paddle checkout)
+    2. Store the /checkout/{external_id} link in Lago metadata
+    3. Customer visits the link → middleware shows plan picker (or redirects directly
+       for single-plan setups) → Paddle checkout → subscription_created webhook fires
        → handled by webhooks/paddle.py
 
     Skipped for Paddle-first customers (subscription already exists in Paddle —
@@ -45,43 +43,24 @@ async def run(customer: LagoCustomer) -> None:
         return
 
     lago = LagoClient()
-    paddle = PaddleClassicClient()
-
     try:
         if not customer.email:
             logger.warning("customer has no email, skipping onboarding", external_id=customer.external_id)
             return
 
-        logger.info("generating paddle checkout link", external_id=customer.external_id)
+        # Cache email — /checkout uses it to pre-fill the Paddle checkout form
+        r.set(checkout_email_key(customer.external_id), customer.email, ex=_CHECKOUT_TTL)
 
-        passthrough = json.dumps({
-            "lago_customer_id": customer.lago_id,
-            "lago_external_id": customer.external_id,
-        })
-
-        checkout_url = await paddle.generate_pay_link(
-            product_id=get("PADDLE_MONTHLY_PLAN_ID"),
-            customer_email=customer.email,
-            passthrough=passthrough,
-        )
-
-        # Store full URL in Redis — Lago metadata values are capped at 255 chars
-        _redis().set(checkout_redis_key(customer.external_id), checkout_url, ex=_CHECKOUT_TTL)
-        logger.info("checkout url cached in redis", external_id=customer.external_id)
-
-        # Store a short redirect URL in Lago metadata instead
         middleware_url = get("MIDDLEWARE_URL") or "http://localhost:3000"
         redirect_url = f"{middleware_url}/checkout/{quote(customer.external_id, safe='')}"
 
         await lago.store_paddle_ids(
             external_id=customer.external_id,
-            metadata=[
-                {
-                    "key": "paddle_checkout_url",
-                    "value": redirect_url,
-                    "display_in_invoice": False,
-                }
-            ],
+            metadata=[{
+                "key": "paddle_checkout_url",
+                "value": redirect_url,
+                "display_in_invoice": False,
+            }],
         )
 
         logger.info(
@@ -92,4 +71,3 @@ async def run(customer: LagoCustomer) -> None:
 
     finally:
         await lago.close()
-        await paddle.close()
