@@ -216,6 +216,9 @@ async def _handle_subscription_payment_succeeded(data: dict) -> None:
 
         # Mark as processed
         r.set(topup_key, "1", ex=60 * 60 * 24 * 7)
+        # Flag so invoice_payment knows this credit invoice was pre-funded externally.
+        # TTL covers the Celery retry window (default 180s) with margin.
+        r.set(f"external_topup:{lago_external_id}", "1", ex=300)
 
         logger.info(
             "wallet topped up from external charge",
